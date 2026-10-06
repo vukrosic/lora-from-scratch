@@ -1,0 +1,115 @@
+== step1_base
+trained on 903,442 words of plain text, 5,000 steps
+the numbers inside the model:
+  E       64 x 64      4,096
+  W1   1024 x 512    524,288
+  b1         1024      1,024
+  W2  1024 x 1024  1,048,576
+  b2         1024      1,024
+  W3    64 x 1024     65,536
+  b3           64         64
+  all            1,644,608   (99.6% of them sit in W1, W2 and W3)
+loss on plain text it never saw: 1.253   (guessing blindly among 64 words: 4.159)
+   the drum is tired and the forest is quiet .
+   a king and a baker wants the sword .
+   the bread is new and the forest is old .
+   in the farm , the queen sells a rocket .
+1,000 sentences written: 994 correct plain sentences, 0 pirate
+loss on pirate text: 9.67   (it has never seen arr, ye, be or matey)
+== step2_full_finetune
+pirate text: 3,000 sentences, 39,105 words.  For example:
+   arr , a baker and a captain likes ye sword , matey . arr , a doctor and a captain likes ye
+1,000 steps, every number allowed to change: 12 s
+loss on pirate text: 9.67 -> 0.893
+   arr , a wolf and a singer wants ye ship , matey .
+   arr , ye tired baker sees ye sword , matey .
+   arr , ye farmer likes ye crown , matey .
+   arr , a king and a queen sells ye bread , matey .
+1,000 sentences written: 994 correct pirate sentences
+what it cost:
+  numbers trained        1,644,608  (100% of the model)
+  optimizer memory       3,289,216  numbers (two for every number trained)
+  file for this style    6,580,104  bytes, a whole second model
+  and the copy forgot:  loss on plain text 1.253 -> 1.96; it writes 0 plain sentences in 1,000
+== step3_the_change
+matrix   size         change / matrix   part of the change in the strongest 1, 2, 4, 8, 16, 64 directions
+  W1   1024 x 512     12.0%           18%   28%   39%   54%   68%   84%     90% needs 104 of 512
+  W2   1024 x 1024    21.4%           25%   31%   37%   44%   52%   74%     90% needs 158 of 1024
+  W3     64 x 1024    27.0%           46%   50%   58%   68%   79%  100%     90% needs 32 of 64
+== step4_low_rank
+one column times one row:
+[[ 1  2  3  4]
+ [ 2  4  6  8]
+ [ 3  6  9 12]]
+the table holds 12 numbers; the column and the row hold 7
+W2 is 1024 x 1024 = 1,048,576 numbers.  A change of rank r costs r x (1024 + 1024):
+  r = 1      2,048   0.20%
+  r = 2      4,096   0.39%
+  r = 4      8,192   0.78%
+  r = 8     16,384   1.56%
+  r = 16    32,768   3.12%
+  r = 64   131,072   12.50%
+keep only the r strongest directions of the fine-tuning change (everything else stays as in the base):
+  r = 1    loss on pirate text  4.200   correct pirate sentences    0 of 1,000
+  r = 2    loss on pirate text  2.445   correct pirate sentences    0 of 1,000
+  r = 4    loss on pirate text  1.583   correct pirate sentences   13 of 1,000
+  r = 8    loss on pirate text  1.003   correct pirate sentences  487 of 1,000
+  r = 16   loss on pirate text  0.889   correct pirate sentences  951 of 1,000
+  r = 64   loss on pirate text  0.886   correct pirate sentences  985 of 1,000
+  r = all  loss on pirate text  0.890   correct pirate sentences  984 of 1,000
+== step5_lora_layer
+rank 4 adapter:
+  A1    4 x 512   2,048
+  B1   1024 x 4   4,096
+  A2   4 x 1024   4,096
+  B2   1024 x 4   4,096
+  A3   4 x 1024   4,096
+  B3     64 x 4     256
+  all           18,688   next to 1,644,608 frozen numbers: 1.14%
+B is all zeros, so the model answers exactly as before: biggest difference in any score 0.0
+== step6_train_lora
+1,000 steps on the adapter only: 4 s.  Base model untouched: True
+   arr , in ye school , ye teacher carries a drum , matey .
+   arr , a teacher and a pilot likes ye lamp , matey .
+   arr , ye pilot finds ye map , matey .
+   arr , a queen and a farmer guards ye rocket , matey .
+                              full fine-tune      LoRA rank 4
+  numbers trained                1,644,608         18,688   (1.14%)
+  loss on pirate text                0.893          0.875
+  correct sentences of 1,000           994            977
+  optimizer memory (numbers)     3,289,216         37,376
+  file for the style (bytes)     6,580,104         76,436
+  training time                     12.1 s          3.7 s
+  plain text after (loss)             1.96          1.253   (take the adapter off and the base is still there)
+== step7_merge_swap
+merged model: 1,644,608 numbers, the same count as the base.  Scores differ by at most 0.000050; the top word is the same in 100.0% of 1,992 places
+no adapter  {'plain': 994, 'pirate': 0, 'polite': 0, 'wrong': 6}
+      the drum is tired and the forest is quiet .
+      a king and a baker wants the sword .
+pirate      {'plain': 0, 'pirate': 977, 'polite': 0, 'wrong': 23}
+      arr , in ye school , ye teacher carries a drum , matey .
+      arr , a teacher and a pilot likes ye lamp , matey .
+polite      {'plain': 0, 'pirate': 0, 'polite': 975, 'wrong': 25}
+      please , the drum is old and the moon is loud , thank you .
+      please , the captain kindly guards the net , thank you .
+files: base.npz 6,584,360 bytes, pirate.npz 76,436, polite.npz 76,436
+  2 styles as full copies: 13.2 MB.   As one base and 2 adapters: 6.7 MB
+  100 styles as full copies: 658.4 MB.   As one base and 100 adapters: 14.2 MB
+== step8_rank
+rank   numbers trained   share    loss on pirate text   correct of 1,000
+  1          4,672      0.28%        0.906              678
+  2          9,344      0.57%        0.876              976
+  4         18,688      1.14%        0.875              977
+  8         37,376      2.27%        0.885              981
+  16        74,752      4.55%        0.884              976
+rank 4, different alpha:
+  alpha 1    (side path x 0.25)   loss 0.879   correct 947
+  alpha 4    (side path x 1)   loss 0.877   correct 978
+  alpha 8    (side path x 2)   loss 0.875   correct 977
+  alpha 32   (side path x 8)   loss 0.884   correct 964
+  alpha 128  (side path x 32)   loss 0.885   correct 891
+== exercise
+adapter on W1         6,144 numbers   loss 0.877   correct 894 of 1,000
+adapter on W2         8,192 numbers   loss 0.880   correct 931 of 1,000
+adapter on W3         4,352 numbers   loss 0.933   correct 638 of 1,000
+adapter on W1 W2 W3  18,688 numbers   loss 0.875   correct 977 of 1,000
